@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NotEP - Your Ideas, Captured</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/framer-motion/10.16.4/framer-motion.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+
+        :root {
+            color-scheme: dark;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+            color: #f1f5f9;
+            min-height: 100vh;
+        }
+
+        .gradient-accent {
+            background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+        }
+
+        .card-bg {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(71, 85, 105, 0.3);
+        }
+
+        .input-field {
+            background: rgba(51, 65, 85, 0.5);
+            border: 1px solid rgba(71, 85, 105, 0.5);
+            color: #f1f5f9;
+            transition: all 0.3s ease;
+        }
+
+        .input-field:focus {
+            border-color: #06b6d4;
+            box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.1);
+        }
+
+        .note-card {
+            transition: all 0.3s ease;
+        }
+
+        .note-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        const { motion, AnimatePresence } = window.framer;
+
+        const API_URL = 'https://notep-api-latest.onrender.com';
+
+        function NotEPApp() {
+            const [auth, setAuth] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [notes, setNotes] = useState([]);
+            const [showCreateModal, setShowCreateModal] = useState(false);
+            const [editingNote, setEditingNote] = useState(null);
+            const [error, setError] = useState('');
+
+            // Check if user logged in
+            useEffect(() => {
+                const token = localStorage.getItem('notep_token');
+                if (token) {
+                    setAuth({ token });
+                    fetchNotes(token);
+                }
+            }, []);
+
+            const fetchNotes = async (token) => {
+                try {
+                    const response = await fetch(`${API_URL}/notes?skip=0&limit=100`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        setNotes(data.items);
+                    }
+                } catch (err) {
+                    setError('Failed to fetch notes');
+                }
+            };
+
+            const handleRegister = async (email, password) => {
+                setLoading(true);
+                setError('');
+                try {
+                    const response = await fetch(`${API_URL}/auth/register`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+
+                    if (response.ok) {
+                        await handleLogin(email, password);
+                    } else {
+                        const data = await response.json();
+                        setError(data.detail || 'Registration failed');
+                    }
+                } catch (err) {
+                    setError('Registration failed');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleLogin = async (email, password) => {
+                setLoading(true);
+                setError('');
+                try {
+                    const response = await fetch(`${API_URL}/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        localStorage.setItem('notep_token', data.access_token);
+                        setAuth({ token: data.access_token, email });
+                        fetchNotes(data.access_token);
+                    } else {
+                        const data = await response.json();
+                        setError(data.detail || 'Login failed');
+                    }
+                } catch (err) {
+                    setError('Login failed');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleSaveNote = async (title, content) => {
+                setLoading(true);
+                setError('');
+                try {
+                    const method = editingNote ? 'PUT' : 'POST';
+                    const url = editingNote
+                        ? `${API_URL}/notes/${editingNote.id}`
+                        : `${API_URL}/notes`;
+
+                    const response = await fetch(url, {
+                        method,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${auth.token}`
+                        },
+                        body: JSON.stringify({ title, content })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (editingNote) {
+                            setNotes(notes.map(n => n.id === data.id ? data : n));
+                            setEditingNote(null);
+                        } else {
+                            setNotes([data, ...notes]);
+                        }
+                        setShowCreateModal(false);
+                    } else {
+                        setError('Failed to save note');
+                    }
+                } catch (err) {
+                    setError('Failed to save note');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleDeleteNote = async (noteId) => {
+                if (!window.confirm('Delete this note?')) return;
+
+                try {
+                    const response = await fetch(`${API_URL}/notes/${noteId}`, {
+                        method: 'DELETE',
+                        headers: { Authorization: `Bearer ${auth.token}` }
+                    });
+
+                    if (response.ok) {
+                        setNotes(notes.filter(n => n.id !== noteId));
+                    } else {
+                        setError('Failed to delete note');
+                    }
+                } catch (err) {
+                    setError('Failed to delete note');
+                }
+            };
+
+            const handleLogout = () => {
+                localStorage.removeItem('notep_token');
+                setAuth(null);
+                setNotes([]);
+            };
+
+            if (!auth) {
+                return <AuthPage onRegister={handleRegister} onLogin={handleLogin} loading={loading} error={error} />;
+            }
+
+            return (
+                <Dashboard 
+                    notes={notes} 
+                    onCreateNote={() => setShowCreateModal(true)} 
+                    onDeleteNote={handleDeleteNote} 
+                    onEditNote={setEditingNote} 
+                    onLogout={handleLogout} 
+                    loading={loading} 
+                    error={error} 
+                    showModal={showCreateModal} 
+                    onCloseModal={() => { setShowCreateModal(false); setEditingNote(null); }} 
+                    onSaveNote={handleSaveNote} 
+                    editingNote={editingNote}
+                />
+            );
+        }
+
+        // Auth Page
+        function AuthPage({ onRegister, onLogin, loading, error }) {
+            const [isLogin, setIsLogin] = useState(true);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (isLogin) {
+                    onLogin(email, password);
+                } else {
+                    onRegister(email, password);
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center px-4">
+                    <div className="w-full max-w-md fade-in">
+                        {/* Logo */}
+                        <div className="text-center mb-8">
+                            <div className="inline-block gradient-accent p-3 rounded-lg mb-4">
+                                <span className="text-2xl font-bold">NotEP</span>
+                            </div>
+                            <p className="text-slate-400 text-sm">Your ideas, captured</p>
+                        </div>
+
+                        {/* Card */}
+                        <div className="card-bg rounded-xl p-8">
+                            <h2 className="text-2xl font-bold mb-6 text-center">
+                                {isLogin ? 'Welcome back' : 'Create account'}
+                            </h2>
+
+                            {error && (
+                                <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm p-3 rounded-lg mb-4">
+                                    {error}
+                                </div>
+                            )}
+
+                            <form onSubmit={handleSubmit} className="space-y-4">
+                                <div>
+                                    <label className="block text-sm text-slate-300 mb-2">Email</label>
+                                    <input
+                                        type="email"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        placeholder="your@email.com"
+                                        className="w-full input-field rounded-lg px-4 py-2.5"
+                                        required
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm text-slate-300 mb-2">Password</label>
+                                    <input
+                                        type="password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        placeholder="••••••••"
+                                        className="w-full input-field rounded-lg px-4 py-2.5"
+                                        required
+                                    />
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="w-full gradient-accent hover:opacity-90 font-semibold py-2.5 rounded-lg transition disabled:opacity-50 text-slate-900"
+                                >
+                                    {loading ? 'Loading...' : isLogin ? 'Sign in' : 'Create account'}
+                                </button>
+                            </form>
+
+                            <div className="mt-6 text-center">
+                                <button
+                                    onClick={() => setIsLogin(!isLogin)}
+                                    className="text-cyan-400 hover:text-cyan-300 text-sm transition"
+                                >
+                                    {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+                                </button>
+                            </div>
+                        </div>
+
+                        <p className="text-center text-slate-500 text-xs mt-8">
+                            Demo: Use any email/password to test
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        // Dashboard
+        function Dashboard({ notes, onCreateNote, onDeleteNote, onEditNote, onLogout, loading, error, showModal, onCloseModal, onSaveNote, editingNote }) {
+            return (
+                <div className="min-h-screen">
+                    {/* Header */}
+                    <div className="border-b border-slate-700 card-bg">
+                        <div className="max-w-7xl mx-auto px-4 py-6 flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                <div className="gradient-accent p-2 rounded-lg">
+                                    <span className="text-xl font-bold">NotEP</span>
+                                </div>
+                                <div>
+                                    <p className="font-semibold">Your Notes</p>
+                                    <p className="text-slate-400 text-xs">{notes.length} notes</p>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={onLogout}
+                                className="text-slate-300 hover:text-white text-sm transition"
+                            >
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Main Content */}
+                    <div className="max-w-7xl mx-auto px-4 py-12">
+                        {error && (
+                            <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm p-4 rounded-lg mb-6">
+                                {error}
+                            </div>
+                        )}
+
+                        {/* Create Button */}
+                        <button
+                            onClick={onCreateNote}
+                            className="mb-8 gradient-accent hover:opacity-90 font-semibold px-6 py-3 rounded-lg transition text-slate-900"
+                        >
+                            + New Note
+                        </button>
+
+                        {/* Notes Grid */}
+                        {notes.length === 0 ? (
+                            <div className="text-center py-20">
+                                <p className="text-slate-400 mb-2">No notes yet</p>
+                                <p className="text-slate-500 text-sm">Create your first note to get started</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {notes.map((note) => (
+                                    <NoteCard
+                                        key={note.id}
+                                        note={note}
+                                        onDelete={onDeleteNote}
+                                        onEdit={onEditNote}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Create Modal */}
+                    <CreateNoteModal
+                        isOpen={showModal}
+                        onClose={onCloseModal}
+                        onSave={onSaveNote}
+                        loading={loading}
+                        editingNote={editingNote}
+                    />
+                </div>
+            );
+        }
+
+        // Note Card
+        function NoteCard({ note, onDelete, onEdit }) {
+            return (
+                <div
+                    className="note-card card-bg rounded-lg p-6 shadow-lg cursor-pointer group"
+                    onClick={() => onEdit(note)}
+                >
+                    <h3 className="text-white font-semibold mb-2 line-clamp-2 group-hover:text-cyan-400 transition">
+                        {note.title}
+                    </h3>
+                    <p className="text-slate-400 text-sm line-clamp-3 mb-4">
+                        {note.content}
+                    </p>
+
+                    <div className="flex items-center justify-between pt-4 border-t border-slate-700/50">
+                        <span className="text-xs text-slate-500">
+                            {new Date(note.created_at).toLocaleDateString()}
+                        </span>
+
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onDelete(note.id);
+                            }}
+                            className="text-slate-400 hover:text-red-400 transition"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        // Create Note Modal
+        function CreateNoteModal({ isOpen, onClose, onSave, loading, editingNote }) {
+            const [title, setTitle] = useState('');
+            const [content, setContent] = useState('');
+
+            useEffect(() => {
+                if (editingNote) {
+                    setTitle(editingNote.title);
+                    setContent(editingNote.content);
+                } else {
+                    setTitle('');
+                    setContent('');
+                }
+            }, [editingNote, isOpen]);
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (title.trim() && content.trim()) {
+                    onSave(title, content);
+                    setTitle('');
+                    setContent('');
+                }
+            };
+
+            if (!isOpen) return null;
+
+            return (
+                <>
+                    <div
+                        className="fixed inset-0 bg-black/50 z-40"
+                        onClick={onClose}
+                    />
+
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <div className="card-bg rounded-xl p-8 max-w-md w-full fade-in">
+                            <h2 className="text-xl font-bold mb-6">
+                                {editingNote ? 'Edit note' : 'Create note'}
+                            </h2>
+
+                            <form onSubmit={handleSubmit} className="space-y-4">
+                                <div>
+                                    <input
+                                        type="text"
+                                        value={title}
+                                        onChange={(e) => setTitle(e.target.value)}
+                                        placeholder="Note title"
+                                        className="w-full input-field rounded-lg px-4 py-2.5"
+                                        required
+                                    />
+                                </div>
+
+                                <div>
+                                    <textarea
+                                        value={content}
+                                        onChange={(e) => setContent(e.target.value)}
+                                        placeholder="Write your note..."
+                                        rows="6"
+                                        className="w-full input-field rounded-lg px-4 py-2.5 resize-none"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="flex gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={onClose}
+                                        className="flex-1 bg-slate-700 hover:bg-slate-600 font-semibold py-2.5 rounded-lg transition"
+                                    >
+                                        Cancel
+                                    </button>
+
+                                    <button
+                                        type="submit"
+                                        disabled={loading}
+                                        className="flex-1 gradient-accent hover:opacity-90 font-semibold py-2.5 rounded-lg transition disabled:opacity-50 text-slate-900"
+                                    >
+                                        {loading ? 'Saving...' : 'Save'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </>
+            );
+        }
+
+        // Render App
+        ReactDOM.render(<NotEPApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
